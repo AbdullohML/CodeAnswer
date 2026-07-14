@@ -3,177 +3,260 @@
 CodeAnswer is a semantic search and citation-grounded RAG system for
 programming questions.
 
-It searches a collection of 520,000 answered Stack Overflow questions,
-reranks retrieved candidates, and produces a concise answer grounded in
-the original Stack Overflow sources.
+It searches 520,000 answered Stack Overflow questions, reranks the most
+relevant candidates, and produces a concise answer grounded in the
+original human-written sources.
 
-The repository is being built incrementally from the validated project
-experiments. Full setup, architecture, evaluation results, and usage
-instructions will be added as the implementation is completed.
+The repository contains reusable Python modules and command-line scripts.
+Notebooks, datasets, embeddings, indexes, and model files are not tracked
+in Git.
 
-## Corpus preparation
+## Architecture
 
-The corpus builder expects the StackSample files:
+```text
+User question
+    ↓
+all-MiniLM-L6-v2 bi-encoder
+    ↓
+PCA projection: 384 → 128 dimensions
+    ↓
+FAISS HNSW retrieval: top 40
+    ↓
+ms-marco-MiniLM-L-6-v2 cross-encoder
+    ↓
+Top 3 Stack Overflow sources
+    ↓
+Calibrated answerability threshold
+    ├── weak evidence → abstain
+    └── sufficient evidence
+            ↓
+        Qwen2.5:3B through Ollama
+            ↓
+        cited answer or extractive fallback
+```
 
-- `Questions.csv`
-- `Answers.csv`
+## Validated iterations
 
-For each question, CodeAnswer selects the highest-scored answer,
-removes HTML tags, and creates a deterministic collection of 520,000
-question-answer objects.
+### 1. Exact dense-search baseline
+
+Normalized 384-dimensional MiniLM embeddings are stored in
+`FAISS IndexFlatIP`.
+
+### 2. PCA and HNSW optimization
+
+PCA reduces the vectors to 128 dimensions. HNSW provides approximate
+nearest-neighbor search with a controllable latency-quality trade-off.
+
+### 3. Reranked citation-grounded RAG
+
+The optimized retriever returns 40 candidates, a cross-encoder reranks
+them, and local Qwen generates an answer from the best three sources.
+The system validates citations and abstains when evidence is weak.
+
+## Main results
+
+### Retrieval
+
+| System | Recall@10 | Search p95 | Index size |
+|---|---:|---:|---:|
+| Flat-384 | 0.7070 | 71.059 ms | 761.72 MiB |
+| Flat-PCA128 | 0.6655 | 11.170 ms | 253.91 MiB |
+| HNSW-PCA128, ef=128 | 0.6555 | 0.514 ms | 325.45 MiB |
+
+The selected HNSW retriever has approximately 138 times lower search p95
+than the exact baseline and uses approximately 57% less index storage.
+
+### Final RAG pipeline
+
+| Metric | Result |
+|---|---:|
+| Behavior accuracy | 96.43% |
+| In-domain answer rate | 100% |
+| Out-of-domain abstention | 87.5% |
+| Citation coverage | 100% |
+| Citation validity | 97.28% |
+| Total latency p50 | 2.94 s |
+| Total latency p95 | 5.48 s |
+
+Detailed results are available in
+[`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md).
+
+## Repository structure
+
+```text
+CodeAnswer/
+├── configs/
+│   └── default.yaml
+├── docs/
+│   └── EXPERIMENTS.md
+├── results/
+│   ├── experiment_summary.json
+│   └── retrieval_comparison.csv
+├── scripts/
+│   ├── ask_codeanswer.py
+│   ├── build_corpus.py
+│   ├── build_flat_index.py
+│   ├── build_optimized_index.py
+│   ├── compare_retrievers.py
+│   ├── evaluate_retrieval.py
+│   └── generate_embeddings.py
+├── src/codeanswer/
+│   ├── comparison.py
+│   ├── config.py
+│   ├── data.py
+│   ├── embeddings.py
+│   ├── evaluation.py
+│   ├── indexing.py
+│   ├── optimization.py
+│   ├── rag.py
+│   └── reranking.py
+├── tests/
+├── pyproject.toml
+└── README.md
+```
+
+## Requirements
+
+- Python 3.11–3.13
+- Approximately 15 GiB RAM for the validated laptop setup
+- Optional NVIDIA GPU for faster embedding and reranking
+- Ollama with `qwen2.5:3b` for answer generation
+
+The FAISS indexes use CPU search. MiniLM inference can use CPU or CUDA.
+
+## Installation
+
+```bash
+git clone git@github.com:AbdullohML/CodeAnswer.git
+cd CodeAnswer
+python -m pip install -e .
+```
+
+For development and testing:
+
+```bash
+python -m pip install -e ".[dev]"
+```
+
+## Data preparation
+
+Download StackSample and locate:
+
+```text
+Questions.csv
+Answers.csv
+```
+
+Build the 520,000-object corpus:
 
 ```bash
 PYTHONPATH=src python scripts/build_corpus.py \
-  --source-dir ~/.cache/kagglehub/datasets/stackoverflow/stacksample/versions/2
+  --source-dir /path/to/stacksample
 ```
 
-Generated files are stored under:
+Each question is joined to its highest-scored answer. HTML is removed and
+the resulting collection is saved as Parquet.
 
-```text
-artifacts/corpus/
-├── qa_corpus.parquet
-└── qa_corpus.manifest.json
-```
-
-Generated datasets and model artifacts are excluded from Git.
-
-## Embedding generation
-
-CodeAnswer uses `sentence-transformers/all-MiniLM-L6-v2` as its
-bi-encoder. Question bodies are encoded independently into normalized
-384-dimensional vectors.
-
-The embedding pipeline writes the vectors incrementally to a
-memory-mapped float32 file and can resume after interruption.
-
-```bash
-PYTHONPATH=src python scripts/generate_embeddings.py
-```
-
-Select a device explicitly when needed:
+## Generate embeddings
 
 ```bash
 PYTHONPATH=src python scripts/generate_embeddings.py \
-  --device cuda \
-  --batch-size 64
+  --device cuda
 ```
 
-Generated artifacts:
+The pipeline writes normalized vectors incrementally to a resumable
+memory-mapped float32 file.
 
-```text
-artifacts/embeddings/
-├── question_body_minilm_384.f32
-└── question_body_minilm_384.f32.manifest.json
-```
-
-The row at position `i` corresponds to corpus `doc_id = i`.
-Generated embeddings are excluded from Git.
-
-## Exact retrieval baseline
-
-The first retrieval system uses a FAISS `IndexFlatIP` index over
-normalized 384-dimensional MiniLM vectors.
-
-Because both document and query vectors are L2-normalized, inner-product
-ranking is equivalent to cosine-similarity ranking.
+## Build the exact baseline
 
 ```bash
 PYTHONPATH=src python scripts/build_flat_index.py
 ```
 
-Generated artifacts:
-
-```text
-artifacts/indexes/
-├── flat_ip_384.faiss
-└── flat_ip_384.faiss.manifest.json
-```
-
-This exact index is used as the quality reference for the later PCA and
-HNSW optimization experiments.
-
-## Retrieval evaluation
-
-Retrieval quality is evaluated using a known-item task. A Stack Overflow
-question title is used as the search query, while the corresponding
-question body is treated as the relevant document.
-
-The evaluation reports:
-
-- Recall@1, Recall@5, and Recall@10
-- MRR@10
-- nDCG@10
-- batch search throughput
-- mean, p50, and p95 single-query search latency
+Evaluate it:
 
 ```bash
 PYTHONPATH=src python scripts/evaluate_retrieval.py \
   --device cuda
 ```
 
-Results are written to:
-
-```text
-results/iteration_1/exact_dense_baseline/
-├── results.json
-└── per_query_metrics.csv
-```
-
-## PCA and HNSW optimization
-
-The optimized retrieval stage reduces MiniLM embeddings from 384 to 128
-dimensions using PCA. The reduced vectors are normalized again and
-stored in a FAISS HNSW index.
+## Build the optimized retriever
 
 ```bash
 PYTHONPATH=src python scripts/build_optimized_index.py
 ```
 
-Default parameters:
-
-```text
-PCA dimensions: 384 → 128
-PCA training sample: 100,000 vectors
-HNSW M: 16
-HNSW efConstruction: 100
-HNSW efSearch: 128
-```
-
-Generated artifacts:
-
-```text
-artifacts/optimized/
-├── question_body_pca_128.f32
-├── question_body_pca_128.f32.manifest.json
-├── pca_384_to_128.joblib
-├── hnsw_pca_128.faiss
-└── hnsw_pca_128.faiss.manifest.json
-```
-
-The exact 384-dimensional index remains the quality reference, while the
-PCA-HNSW index provides lower memory usage and substantially faster
-search.
-
-## Retrieval optimization comparison
-
-The experiment compares:
-
-- exact search with 384-dimensional vectors;
-- exact search after PCA compression;
-- HNSW search with multiple `efSearch` values.
+Compare all retrieval configurations:
 
 ```bash
 PYTHONPATH=src python scripts/compare_retrievers.py \
   --device cuda
 ```
 
-The comparison reports retrieval quality, ANN overlap, throughput,
-latency, dimension, and index size.
+## Ask CodeAnswer
 
-Results are written to:
+Start Ollama:
+
+```bash
+ollama serve
+```
+
+Install the local generator:
+
+```bash
+ollama pull qwen2.5:3b
+```
+
+Ask a programming question:
+
+```bash
+PYTHONPATH=src python scripts/ask_codeanswer.py \
+  "Why does an asynchronous JavaScript loop return the wrong result?" \
+  --device cuda
+```
+
+Return full JSON containing scores, latency, and sources:
+
+```bash
+PYTHONPATH=src python scripts/ask_codeanswer.py \
+  "How do I split a string in SQL?" \
+  --device cuda \
+  --json
+```
+
+## Testing
+
+```bash
+PYTHONPATH=src python -m pytest -q
+```
+
+The test suite covers corpus construction, resumable embeddings, FAISS
+indexing, retrieval metrics, PCA, HNSW, reranking, threshold calibration,
+citation validation, and safe fallback behavior.
+
+## Generated artifacts
+
+The following are intentionally excluded from Git:
 
 ```text
-results/iteration_2/retrieval_optimization/
-├── comparison.csv
-└── results.json
+data/
+artifacts/
+models/
+*.parquet
+*.f32
+*.faiss
+*.index
 ```
+
+## Limitations
+
+- The source collection is historical and may contain outdated answers.
+- Retrieval evaluation uses a known-item task rather than live user labels.
+- The answerability and RAG evaluation sets are relatively small.
+- The reported faithfulness value is an embedding-based proxy.
+- Qwen generation is the main latency bottleneck.
+- Invalid citation formatting often triggers the extractive fallback.
+
+## License
+
+MIT
