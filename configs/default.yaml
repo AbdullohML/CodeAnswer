@@ -29,6 +29,7 @@ reranker:
   retrieval_candidates: 40
   final_sources: 3
   batch_size: 32
+  answerability_threshold: 0.449093
 
 ollama:
   base_url: http://localhost:11434

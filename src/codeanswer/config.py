@@ -71,6 +71,7 @@ class RerankerConfig:
     retrieval_candidates: int
     final_sources: int
     batch_size: int
+    answerability_threshold: float
 
 
 @dataclass(frozen=True)
