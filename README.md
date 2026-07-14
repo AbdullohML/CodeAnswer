@@ -36,3 +36,35 @@ artifacts/corpus/
 ```
 
 Generated datasets and model artifacts are excluded from Git.
+
+## Embedding generation
+
+CodeAnswer uses `sentence-transformers/all-MiniLM-L6-v2` as its
+bi-encoder. Question bodies are encoded independently into normalized
+384-dimensional vectors.
+
+The embedding pipeline writes the vectors incrementally to a
+memory-mapped float32 file and can resume after interruption.
+
+```bash
+PYTHONPATH=src python scripts/generate_embeddings.py
+```
+
+Select a device explicitly when needed:
+
+```bash
+PYTHONPATH=src python scripts/generate_embeddings.py \
+  --device cuda \
+  --batch-size 64
+```
+
+Generated artifacts:
+
+```text
+artifacts/embeddings/
+├── question_body_minilm_384.f32
+└── question_body_minilm_384.f32.manifest.json
+```
+
+The row at position `i` corresponds to corpus `doc_id = i`.
+Generated embeddings are excluded from Git.
