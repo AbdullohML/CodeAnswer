@@ -91,3 +91,30 @@ artifacts/indexes/
 
 This exact index is used as the quality reference for the later PCA and
 HNSW optimization experiments.
+
+## Retrieval evaluation
+
+Retrieval quality is evaluated using a known-item task. A Stack Overflow
+question title is used as the search query, while the corresponding
+question body is treated as the relevant document.
+
+The evaluation reports:
+
+- Recall@1, Recall@5, and Recall@10
+- MRR@10
+- nDCG@10
+- batch search throughput
+- mean, p50, and p95 single-query search latency
+
+```bash
+PYTHONPATH=src python scripts/evaluate_retrieval.py \
+  --device cuda
+```
+
+Results are written to:
+
+```text
+results/iteration_1/exact_dense_baseline/
+├── results.json
+└── per_query_metrics.csv
+```
