@@ -68,3 +68,26 @@ artifacts/embeddings/
 
 The row at position `i` corresponds to corpus `doc_id = i`.
 Generated embeddings are excluded from Git.
+
+## Exact retrieval baseline
+
+The first retrieval system uses a FAISS `IndexFlatIP` index over
+normalized 384-dimensional MiniLM vectors.
+
+Because both document and query vectors are L2-normalized, inner-product
+ranking is equivalent to cosine-similarity ranking.
+
+```bash
+PYTHONPATH=src python scripts/build_flat_index.py
+```
+
+Generated artifacts:
+
+```text
+artifacts/indexes/
+├── flat_ip_384.faiss
+└── flat_ip_384.faiss.manifest.json
+```
+
+This exact index is used as the quality reference for the later PCA and
+HNSW optimization experiments.
