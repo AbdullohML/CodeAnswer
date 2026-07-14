@@ -153,3 +153,27 @@ artifacts/optimized/
 The exact 384-dimensional index remains the quality reference, while the
 PCA-HNSW index provides lower memory usage and substantially faster
 search.
+
+## Retrieval optimization comparison
+
+The experiment compares:
+
+- exact search with 384-dimensional vectors;
+- exact search after PCA compression;
+- HNSW search with multiple `efSearch` values.
+
+```bash
+PYTHONPATH=src python scripts/compare_retrievers.py \
+  --device cuda
+```
+
+The comparison reports retrieval quality, ANN overlap, throughput,
+latency, dimension, and index size.
+
+Results are written to:
+
+```text
+results/iteration_2/retrieval_optimization/
+├── comparison.csv
+└── results.json
+```
