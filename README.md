@@ -118,3 +118,38 @@ results/iteration_1/exact_dense_baseline/
 ├── results.json
 └── per_query_metrics.csv
 ```
+
+## PCA and HNSW optimization
+
+The optimized retrieval stage reduces MiniLM embeddings from 384 to 128
+dimensions using PCA. The reduced vectors are normalized again and
+stored in a FAISS HNSW index.
+
+```bash
+PYTHONPATH=src python scripts/build_optimized_index.py
+```
+
+Default parameters:
+
+```text
+PCA dimensions: 384 → 128
+PCA training sample: 100,000 vectors
+HNSW M: 16
+HNSW efConstruction: 100
+HNSW efSearch: 128
+```
+
+Generated artifacts:
+
+```text
+artifacts/optimized/
+├── question_body_pca_128.f32
+├── question_body_pca_128.f32.manifest.json
+├── pca_384_to_128.joblib
+├── hnsw_pca_128.faiss
+└── hnsw_pca_128.faiss.manifest.json
+```
+
+The exact 384-dimensional index remains the quality reference, while the
+PCA-HNSW index provides lower memory usage and substantially faster
+search.
