@@ -1,6 +1,6 @@
-# Ping
+# CodeAnswer
 
-Ping is a semantic search and citation-grounded RAG system for
+CodeAnswer is a semantic search and citation-grounded RAG system for
 programming questions.
 
 It searches 520,000 answered Stack Overflow questions, reranks the most
